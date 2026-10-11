@@ -104,11 +104,6 @@ internal static class Program
             dir = Path.GetDirectoryName(dir);
         }
 
-        // 3. Hardcoded original location as last-resort fallback
-        const string original =
-            @"D:\.codex\.codex workspaces\Destroy All Humans! Big Willy Unleashed Recompiled";
-        if (IsWorkspaceRoot(original)) return original;
-
         return null;
     }
 
