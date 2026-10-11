@@ -1,0 +1,437 @@
+diff --git a/Source/Core/DolphinNoGUI/PlatformWin32.cpp b/Source/Core/DolphinNoGUI/PlatformWin32.cpp
+index 3402fda..7d49995 100644
+--- a/Source/Core/DolphinNoGUI/PlatformWin32.cpp
++++ b/Source/Core/DolphinNoGUI/PlatformWin32.cpp
+@@ -9,6 +9,8 @@
+ #include "Core/SavestateLayout.h"
+ #include "Core/State.h"
+ #include "Core/System.h"
++#include "Core/PowerPC/StaticRecomp/BigWillyConsole.h"
++#include "Core/PowerPC/StaticRecomp/BigWillyControls.h"
+ 
+ #include "Common/CommonPaths.h"
+ #include "Common/FileUtil.h"
+@@ -16,8 +18,13 @@
+ 
+ #include <algorithm>
+ #include <chrono>
++#include <mutex>
++#include <cstdlib>
++#include <cstring>
+ #include <ctime>
++#include <fcntl.h>
+ #include <filesystem>
++#include <io.h>
+ #include <string>
+ #include <vector>
+ #include <windows.h>
+@@ -43,6 +50,21 @@ constexpr UINT ID_LOAD_STATE_LAST = 41199;
+ // outrunning what most hosts can actually emulate.
+ constexpr float FAST_FORWARD_SPEED = 2.0f;
+ 
++bool AgentControlsGame()
++{
++  static const bool enabled = [] {
++    const char* value = std::getenv("STATICRECOMP_AUTOMATION_EXCLUSIVE");
++    return value && std::string_view(value) == "1";
++  }();
++  return enabled;
++}
++
++// Forward-declared so ExecuteConsoleCommand can call RequestShutdown.
++class PlatformWin32;
++
++void StartStdoutTee();
++void ExecuteConsoleCommand(PlatformWin32* platform, const std::string& cmd_str);
++
+ class PlatformWin32 final : public Platform
+ {
+ public:
+@@ -87,6 +109,152 @@ private:
+   int m_window_height = Config::Get(Config::MAIN_RENDER_WINDOW_HEIGHT);
+ };
+ 
++// Redirects the C runtime's stdout through an anonymous pipe so a background
++// thread can tee each line to both the original stdout handle (preserving the
++// launcher's furonlog capture) and BigWillyConsole::Log() for in-game display.
++void StartStdoutTee()
++{
++  // Grab the current stdout HANDLE before we replace it.
++  const HANDLE orig_raw = reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(stdout)));
++  if (orig_raw == INVALID_HANDLE_VALUE || orig_raw == nullptr)
++    return;
++
++  // Keep a durable duplicate so the tee thread can write to it after we
++  // reassign fd 1.
++  HANDLE orig = INVALID_HANDLE_VALUE;
++  if (!DuplicateHandle(GetCurrentProcess(), orig_raw, GetCurrentProcess(), &orig,
++                       0, FALSE, DUPLICATE_SAME_ACCESS))
++    return;
++
++  // Create the pipe. A 64 KiB buffer avoids blocking bursts of output.
++  HANDLE pipe_r = INVALID_HANDLE_VALUE;
++  HANDLE pipe_w = INVALID_HANDLE_VALUE;
++  {
++    SECURITY_ATTRIBUTES sa{sizeof(SECURITY_ATTRIBUTES), nullptr, FALSE};
++    if (!CreatePipe(&pipe_r, &pipe_w, &sa, 65536))
++    {
++      CloseHandle(orig);
++      return;
++    }
++  }
++
++  // Open an fd around the write end and dup2 it over fd 1 (stdout).
++  // _dup2 makes fd 1 its own DuplicateHandle copy of pipe_w, so the
++  // subsequent _close of pipe_w_fd is safe and does not break fd 1.
++  const int pipe_w_fd = _open_osfhandle(reinterpret_cast<intptr_t>(pipe_w),
++                                        _O_WRONLY | _O_TEXT);
++  if (pipe_w_fd == -1)
++  {
++    CloseHandle(orig);
++    CloseHandle(pipe_r);
++    CloseHandle(pipe_w);
++    return;
++  }
++  if (_dup2(pipe_w_fd, _fileno(stdout)) != 0)
++  {
++    CloseHandle(orig);
++    CloseHandle(pipe_r);
++    _close(pipe_w_fd);  // also closes pipe_w
++    return;
++  }
++  _close(pipe_w_fd);           // fd 1 owns its own dup; release the extra fd
++  setvbuf(stdout, nullptr, _IONBF, 0);  // flush immediately on every write
++
++  // Keep Win32's view in sync with the new fd 1 handle.
++  SetStdHandle(STD_OUTPUT_HANDLE,
++               reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(stdout))));
++
++  // Background tee thread: reads lines from pipe_r and dispatches to both
++  // the original stdout handle and BigWillyConsole::Log().
++  std::thread([pipe_r, orig]() {
++    const int read_fd = _open_osfhandle(reinterpret_cast<intptr_t>(pipe_r),
++                                        _O_RDONLY | _O_TEXT);
++    if (read_fd == -1)
++    {
++      CloseHandle(pipe_r);
++      CloseHandle(orig);
++      return;
++    }
++    FILE* const f = _fdopen(read_fd, "r");
++    if (!f)
++    {
++      _close(read_fd);
++      CloseHandle(orig);
++      return;
++    }
++
++    char buf[4096];
++    while (fgets(buf, static_cast<int>(sizeof(buf)), f))
++    {
++      const std::size_t len_nl = std::strlen(buf);
++
++      // Forward the line (with its newline) to the original stdout so the
++      // launcher's furonlog pipe continues to receive everything.
++      DWORD written = 0;
++      WriteFile(orig, buf, static_cast<DWORD>(len_nl), &written, nullptr);
++
++      // Strip trailing newline(s) for single-line console display.
++      std::size_t len = len_nl;
++      while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r'))
++        buf[--len] = '\0';
++
++      if (len > 0)
++        BigWillyConsole::Log(std::string(buf, len));
++    }
++
++    fclose(f);       // closes read_fd and pipe_r
++    CloseHandle(orig);
++  }).detach();
++}
++
++void ExecuteConsoleCommand(PlatformWin32* platform, const std::string& cmd_str)
++{
++  BigWillyConsole::Log("> " + cmd_str);
++
++  const auto space = cmd_str.find(' ');
++  const std::string cmd = (space == std::string::npos) ? cmd_str : cmd_str.substr(0, space);
++  const std::string args = (space == std::string::npos) ? std::string{} : cmd_str.substr(space + 1);
++
++  if (cmd.empty())
++    return;
++
++  if (cmd == "help")
++  {
++    BigWillyConsole::Log("Commands:");
++    BigWillyConsole::Log("  help        - show this message");
++    BigWillyConsole::Log("  clear       - clear the log");
++    BigWillyConsole::Log("  quit/exit   - quit the game");
++    BigWillyConsole::Log("  fps         - toggle FPS display hint");
++    BigWillyConsole::Log("  osd <msg>   - post an OSD notification");
++  }
++  else if (cmd == "clear")
++  {
++    std::lock_guard<std::mutex> lock(BigWillyConsole::g_mutex);
++    BigWillyConsole::g_log.clear();
++  }
++  else if (cmd == "quit" || cmd == "exit")
++  {
++    BigWillyConsole::Log("Shutting down...");
++    if (platform)
++      platform->RequestShutdown();
++  }
++  else if (cmd == "osd")
++  {
++    if (args.empty())
++      BigWillyConsole::Log("[osd] usage: osd <message>");
++    else
++      BigWillyConsole::Log("[osd] " + args);
++  }
++  else if (cmd == "fps")
++  {
++    BigWillyConsole::Log("[fps] FPS display is in the window title bar.");
++  }
++  else
++  {
++    BigWillyConsole::Log("Unknown command '" + cmd + "' -- type 'help' for help.");
++  }
++}
++
+ PlatformWin32::~PlatformWin32()
+ {
+   if (m_hwnd)
+@@ -274,6 +442,10 @@ bool PlatformWin32::Init()
+   if (Config::Get(Config::MAIN_DISABLE_SCREENSAVER))
+     SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED);
+ 
++  // Tee stdout to the dev console so OSReport output appears in-game.
++  // The original stdout handle is preserved, keeping furonlog capture intact.
++  StartStdoutTee();
++
+   UpdateWindowPosition();
+   return true;
+ }
+@@ -363,7 +535,57 @@ LRESULT PlatformWin32::WndProc(const HWND hwnd, const UINT msg, const WPARAM wPa
+   }
+   break;
+ 
++  case WM_CHAR:
++    // Feed printable characters into the dev console input when it is open.
++    // The backtick (0x60) is excluded: it is the toggle key and we don't want
++    // it to appear in the input buffer.
++    if (BigWillyConsole::IsOpen() && !AgentControlsGame())
++    {
++      const wchar_t wch = static_cast<wchar_t>(wParam);
++      if (wch >= 0x20 && wch != L'`')
++        BigWillyConsole::AppendInputChar(wch);
++      return 0;
++    }
++    break;
++
+   case WM_KEYDOWN:
++    if (AgentControlsGame())
++      return 0;
++
++    // Backtick (VK_OEM_3) toggles the dev console. Ignore auto-repeat.
++    if (wParam == VK_OEM_3 && (static_cast<ULONG_PTR>(lParam) & (1u << 30)) == 0)
++    {
++      BigWillyConsole::Toggle();
++      if (BigWillyConsole::IsOpen())
++        BigWillyConsole::Log("Furon Dev Console -- type 'help' for commands");
++      return 0;
++    }
++
++    // When the console is open, intercept edit/nav keys before the normal
++    // game bindings. F11 is allowed to fall through so fullscreen still works.
++    if (BigWillyConsole::IsOpen())
++    {
++      if (wParam == VK_ESCAPE)
++      {
++        BigWillyConsole::Close();
++        return 0;
++      }
++      if (wParam == VK_BACK)
++      {
++        BigWillyConsole::BackspaceInput();
++        return 0;
++      }
++      if (wParam == VK_RETURN && (static_cast<ULONG_PTR>(lParam) & (1u << 30)) == 0)
++      {
++        ExecuteConsoleCommand(platform, BigWillyConsole::GetInput());
++        BigWillyConsole::ClearInput();
++        return 0;
++      }
++      if (wParam != VK_F11)
++        return 0;
++    }
++
++    // Standard key bindings (console closed, or VK_F11 passthrough).
+     // Bit 30 of lParam is the previous key state: ignore auto-repeat, or holding
+     // F1 down would write a state every few milliseconds.
+     if (wParam == VK_F1 && (static_cast<ULONG_PTR>(lParam) & (1u << 30)) == 0)
+@@ -381,18 +603,20 @@ LRESULT PlatformWin32::WndProc(const HWND hwnd, const UINT msg, const WPARAM wPa
+       platform->ToggleFullscreen();
+       return 0;
+     }
+-    else if (wParam == VK_ESCAPE && platform->m_fullscreen)
+-    {
+-      platform->ToggleFullscreen();
+-      return 0;
+-    }
+     else if (wParam == VK_ESCAPE)
+     {
+-      platform->RequestShutdown();
++      // Escape is the explicit movie/cutscene skip key for the Big Willy
++      // interactive build, regardless of whether the window is fullscreen.
++      // F11 remains the fullscreen toggle so Escape can always be used to
++      // reach the menu quickly.
++      BigWillyControls::RequestSkipMovie();
++      return 0;
+     }
+     break;
+ 
+   case WM_KEYUP:
++    if (AgentControlsGame())
++      return 0;
+     if (wParam == VK_SPACE)
+     {
+       Config::SetCurrent(Config::MAIN_EMULATION_SPEED, 1.0f);
+@@ -401,12 +625,16 @@ LRESULT PlatformWin32::WndProc(const HWND hwnd, const UINT msg, const WPARAM wPa
+     break;
+ 
+   case WM_KILLFOCUS:
++    if (AgentControlsGame())
++      break;
+     // Never leave emulation running fast because Space was released while
+     // another window had focus and the key-up went elsewhere.
+     Config::SetCurrent(Config::MAIN_EMULATION_SPEED, 1.0f);
+     break;
+ 
+   case WM_SYSKEYDOWN:
++    if (AgentControlsGame())
++      return DefWindowProc(hwnd, msg, wParam, lParam);
+     if (wParam == VK_RETURN && (GetKeyState(VK_MENU) & 0x8000) != 0)
+     {
+       platform->ToggleFullscreen();
+@@ -421,6 +649,8 @@ LRESULT PlatformWin32::WndProc(const HWND hwnd, const UINT msg, const WPARAM wPa
+ 
+   case WM_COMMAND:
+   {
++    if (AgentControlsGame())
++      return 0;
+     if (!platform)
+       break;
+     const UINT command = LOWORD(wParam);
+diff --git a/Source/Core/VideoCommon/OnScreenUI.cpp b/Source/Core/VideoCommon/OnScreenUI.cpp
+index 451109b..f2ed793 100644
+--- a/Source/Core/VideoCommon/OnScreenUI.cpp
++++ b/Source/Core/VideoCommon/OnScreenUI.cpp
+@@ -3,6 +3,8 @@
+ 
+ #include "VideoCommon/OnScreenUI.h"
+ 
++#include "Core/PowerPC/StaticRecomp/BigWillyConsole.h"
++
+ #include "Common/CommonPaths.h"
+ #include "Common/EnumMap.h"
+ #include "Common/FileUtil.h"
+@@ -31,6 +33,7 @@
+ #include "VideoCommon/VertexManagerBase.h"
+ #include "VideoCommon/VideoConfig.h"
+ 
++#include <algorithm>
+ #include <inttypes.h>
+ #include <mutex>
+ 
+@@ -413,6 +416,83 @@ void OnScreenUI::DrawChallengesAndLeaderboards()
+ #endif  // USE_RETRO_ACHIEVEMENTS
+ }
+ 
++static void DrawDevConsole()
++{
++  const bool open = BigWillyConsole::IsOpen();
++
++  // Animate the panel sliding down from the top of the screen.
++  static float s_slide = 0.0f;
++  const float dt = ImGui::GetIO().DeltaTime;
++  constexpr float SLIDE_SPEED = 10.0f;
++  s_slide += (open ? 1.0f : -1.0f) * SLIDE_SPEED * dt;
++  s_slide = std::clamp(s_slide, 0.0f, 1.0f);
++
++  if (s_slide <= 0.0f)
++    return;
++
++  // Smooth-step easing.
++  const float t = s_slide * s_slide * (3.0f - 2.0f * s_slide);
++
++  const ImGuiIO& io = ImGui::GetIO();
++  const float console_h = io.DisplaySize.y * 0.42f;
++  // Panel slides in from above: y goes from -console_h (hidden) to 0 (visible).
++  const float y_pos = (t - 1.0f) * console_h;
++
++  ImGui::SetNextWindowPos(ImVec2(0.0f, y_pos));
++  ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x, console_h));
++  ImGui::SetNextWindowBgAlpha(0.88f);
++  constexpr ImGuiWindowFlags kFlags =
++      ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
++      ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
++      ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar |
++      ImGuiWindowFlags_NoScrollWithMouse;
++
++  if (!ImGui::Begin("##bw_console", nullptr, kFlags))
++  {
++    ImGui::End();
++    return;
++  }
++
++  // Header row.
++  ImGui::TextColored(ImVec4(0.35f, 1.0f, 0.45f, 1.0f), "Furon Dev Console");
++  ImGui::SameLine();
++  ImGui::TextDisabled("  ` to close | Esc to close | Enter to run");
++  ImGui::Separator();
++
++  // Scrollable log area — leave room for the input line at the bottom.
++  const float footer_h = ImGui::GetFrameHeightWithSpacing() + 6.0f;
++  ImGui::BeginChild("##bw_log", ImVec2(0.0f, -footer_h), false,
++                    ImGuiWindowFlags_HorizontalScrollbar);
++
++  bool scroll_now = false;
++  {
++    std::lock_guard<std::mutex> lock(BigWillyConsole::g_mutex);
++    for (const auto& line : BigWillyConsole::g_log)
++    {
++      // Colour-code by prefix.
++      if (line.size() >= 2 && line[0] == '>' && line[1] == ' ')
++        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.35f, 1.0f), "%s", line.c_str());
++      else if (line.size() >= 5 && line.rfind("[ERR]", 0) == 0)
++        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", line.c_str());
++      else
++        ImGui::TextUnformatted(line.c_str());
++    }
++    scroll_now = BigWillyConsole::g_scroll_to_bottom;
++    BigWillyConsole::g_scroll_to_bottom = false;
++  }
++  if (scroll_now)
++    ImGui::SetScrollHereY(1.0f);
++
++  ImGui::EndChild();
++
++  // Input line — rendered as plain text with a static cursor character.
++  ImGui::Separator();
++  const std::string& input = BigWillyConsole::GetInput();
++  ImGui::Text("> %s_", input.c_str());
++
++  ImGui::End();
++}
++
+ void OnScreenUI::Finalize()
+ {
+   auto lock = GetImGuiLock();
+@@ -422,6 +502,7 @@ void OnScreenUI::Finalize()
+   DrawDebugText();
+   OSD::DrawMessages();
+   DrawChallengesAndLeaderboards();
++  DrawDevConsole();
+   ImGui::Render();
+ 
+   // Check for font changes

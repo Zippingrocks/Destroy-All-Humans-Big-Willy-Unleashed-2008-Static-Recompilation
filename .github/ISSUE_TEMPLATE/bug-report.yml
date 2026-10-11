@@ -1,0 +1,54 @@
+name: Runtime or gameplay bug
+description: Report a reproducible crash or gameplay problem in the recompilation.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not upload original game files or unreviewed logs containing private paths.
+  - type: input
+    id: commit
+    attributes:
+      label: Build or commit
+      placeholder: Commit SHA or exact build name
+    validations:
+      required: true
+  - type: input
+    id: location
+    attributes:
+      label: Mission and location
+      placeholder: Mission, objective, checkpoint and character/vehicle
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Give the shortest reliable sequence from boot or a named checkpoint.
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Wii behavior
+      description: Explain the retail reference and how it was observed.
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: System information
+      placeholder: Windows version, CPU, GPU, driver and input device
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Reviewed evidence
+      description: Attach a screenshot or sanitized log if useful.

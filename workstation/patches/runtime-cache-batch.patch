@@ -1,0 +1,47 @@
+diff --git a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
+index 7b3d845..cc7423e 100644
+--- a/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
++++ b/Source/Core/Core/PowerPC/StaticRecomp/StaticRecompCore_Hooks.cpp
+@@ -13,6 +13,7 @@
+ #include "Common/Logging/Log.h"
+ 
+ #include <cstdio>
++#include <algorithm>
+ 
+ namespace
+ {
+@@ -393,6 +394,32 @@ void StaticRecompCore::HookInstructionFallback(CPUState* cpu, u32 raw, u32 cia)
+       const u32 ra = (raw >> 16) & 31u;
+       const u32 rb = (raw >> 11) & 31u;
+       const u32 ea = (ra ? cpu->gpr[ra] : 0u) + cpu->gpr[rb];
++      // Collapse verified SDK cache-line loops, retaining cache invalidation,
++      // register results and cycle charges. Bound the batch by the remaining
++      // timing slice so interrupts can still run between batches.
++      if ((xo == 86u || xo == 54u ||
++           (xo == 470u && (cpu->msr & 0x4000u) == 0)) &&
++          ra == 0 && rb != 0 && cpu->ctr > 1 &&
++          !core->m_has_rel_modules && !core->m_lockstep_verifier->IsEnabled() &&
++          cia >= 0x80000000u && cia - 0x80000000u + 12u <= cpu->ram_size)
++      {
++        const u8* code = cpu->ram + cia - 0x80000000u;
++        const auto word = [](const u8* p) {
++          return (u32(p[0]) << 24) | (u32(p[1]) << 16) | (u32(p[2]) << 8) | p[3];
++        };
++        const u32 addi = 0x38000020u | (rb << 21) | (rb << 16);
++        const s64 budget = static_cast<s64>(ppc.downcount) + cpu->downcount;
++        if (word(code) == raw && word(code + 4) == addi &&
++            word(code + 8) == 0x4200FFF8u && budget >= 14)
++        {
++          const u32 lines = std::min({cpu->ctr, 256u, static_cast<u32>(budget / 7)});
++          system.GetJitInterface().InvalidateICacheLines(ea, lines);
++          cpu->gpr[rb] += 32u * lines;
++          cpu->ctr -= lines;
++          ppc.downcount -= static_cast<int>(7u * lines);
++          core->m_hook_fallback_instructions += lines - 1u;
++          cpu->pc = cpu->ctr ? cia : cia + 12u;
++          return;
++        }
++      }
+       if (xo == 982u)
+         ppc.iCache.Invalidate(system.GetMemory(), system.GetJitInterface(), ea);
+       else

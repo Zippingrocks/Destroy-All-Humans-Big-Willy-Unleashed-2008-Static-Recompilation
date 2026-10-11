@@ -1,0 +1,51 @@
+diff --git a/Source/Core/DolphinNoGUI/PlatformWin32.cpp b/Source/Core/DolphinNoGUI/PlatformWin32.cpp
+--- a/Source/Core/DolphinNoGUI/PlatformWin32.cpp
++++ b/Source/Core/DolphinNoGUI/PlatformWin32.cpp
+@@ PlatformWin32::~PlatformWin32
+-  if (m_hwnd)
+-    DestroyWindow(m_hwnd);
++  if (m_hwnd)
++  {
++    DestroyWindow(m_hwnd);
++    m_hwnd = nullptr;
++  }
+
+@@ WndProc: after WM_NCCREATE case
++  case WM_NCDESTROY:
++    // Clear the stored pointer before the HWND becomes invalid so that any
++    // stray message dispatched after this point cannot dereference a freed or
++    // partially-destroyed PlatformWin32 object.
++    SetWindowLongPtr(hwnd, GWLP_USERDATA, 0);
++    return DefWindowProc(hwnd, msg, wParam, lParam);
+
+@@ WndProc: WM_CLOSE
+-  case WM_CLOSE:
+-    platform->RequestShutdown();
++  case WM_CLOSE:
++    if (platform)
++      platform->RequestShutdown();
+
+@@ WndProc: WM_KEYDOWN standard bindings
+-    if (wParam == VK_F1 ...
++    if (!platform)
++      break;
++    if (wParam == VK_F1 ...
+
+@@ WndProc: WM_SYSKEYDOWN
+-    if (wParam == VK_RETURN && (GetKeyState(VK_MENU) & 0x8000) != 0)
++    if (platform && wParam == VK_RETURN && (GetKeyState(VK_MENU) & 0x8000) != 0)
+
+--- Root cause ---
+Reproducible ACCESS_VIOLATION (READ) from address 0x0000000000000010 during
+NtUserDestroyWindow -> SendMessage -> WndProc.
+
+Platform base class is 0x10 bytes: vtable(8) + 5xFlag(5) + 2xbool(2) + 1 pad.
+PlatformWin32::m_hwnd is therefore at offset +0x10.  When platform==nullptr,
+any access to m_hwnd lands at address 0x10 -- matching both crash logs exactly.
+
+Standard Win32 defence:
+  1. WM_NCDESTROY clears GWLP_USERDATA so no post-teardown message sees a
+     stale (freed/partially-destroyed) platform pointer.
+  2. WM_CLOSE and the keyboard handlers guard every platform dereference with
+     an explicit null check.
+  3. Destructor nulls m_hwnd after DestroyWindow to prevent double-destroy.

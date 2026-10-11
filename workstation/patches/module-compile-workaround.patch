@@ -1,0 +1,20 @@
+diff --git a/module-template/CMakeLists.txt b/module-template/CMakeLists.txt
+index dac92e8..ec68ee5 100644
+--- a/module-template/CMakeLists.txt
++++ b/module-template/CMakeLists.txt
+@@ -84,6 +84,15 @@ if(NOT CHUNK_INPUTS)
+   message(FATAL_ERROR "DolRecomp output has no generated chunks in ${GENERATED_DIR}/chunks")
+ endif()
+ 
++set(RECOMPCORE_UNOPTIMIZED_CHUNKS "" CACHE STRING
++    "Generated C chunk filenames to compile without MSVC optimization")
++if(MSVC)
++  foreach(CHUNK_NAME IN LISTS RECOMPCORE_UNOPTIMIZED_CHUNKS)
++    set_source_files_properties("${GENERATED_DIR}/chunks/${CHUNK_NAME}"
++      PROPERTIES COMPILE_OPTIONS "/Od")
++  endforeach()
++endif()
++
+ add_library(${MODULE_NAME} SHARED
+   module_export.c
+   "${MODULE_TABLES}"

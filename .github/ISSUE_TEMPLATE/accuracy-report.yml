@@ -1,0 +1,36 @@
+name: Retail accuracy difference
+description: Document a visual, timing, input, audio or behavioral difference from the Wii release.
+title: "[Accuracy]: "
+labels: [accuracy]
+body:
+  - type: input
+    id: commit
+    attributes:
+      label: Recompilation commit
+    validations:
+      required: true
+  - type: input
+    id: scene
+    attributes:
+      label: Exact scene or action
+    validations:
+      required: true
+  - type: textarea
+    id: recomp
+    attributes:
+      label: Recompilation result
+    validations:
+      required: true
+  - type: textarea
+    id: retail
+    attributes:
+      label: Wii retail result and evidence
+      description: State the region, hardware/emulator conditions and comparison method.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Repeatable comparison steps
+    validations:
+      required: true

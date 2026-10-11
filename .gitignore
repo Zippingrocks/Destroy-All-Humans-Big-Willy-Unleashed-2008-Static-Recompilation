@@ -1,0 +1,77 @@
+# Original game data and derived inputs
+/original game/
+/database/
+/workstation/input/
+/workstation/game/
+/workstation/symbols/
+*.dol
+*.elf
+*.iso
+*.rvz
+*.wbfs
+*.wad
+
+# Local dependency/reference checkouts
+/github repos/
+/_git_import/
+
+# Build and packaged output
+/dist/
+/BigWillyUnleashed.exe
+**/build/
+**/build-*/
+**/CMakeFiles/
+**/CMakeCache.txt
+**/bin/
+**/obj/
+*.exe
+*.dll
+*.lib
+*.exp
+*.obj
+*.pdb
+*.ilk
+*.map
+
+# Runtime state, saves, logs, captures and checkpoints
+/workstation/logs/
+/workstation/checkpoints/
+/workstation/interactive-automation/
+/workstation/human-play-*/
+/workstation/run-user*/
+/workstation/test-*/
+/workstation/rollback-*/
+/workstation/quality-*/
+/workstation/controller-session.json
+*.sav
+*.raw
+*.dmp
+*.log
+*.jsonl
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.mp4
+
+# Generated translation and local tools containing redistributed binaries
+/workstation/source code tree/
+/workstation/tools/*.exe
+/workstation/tools/*.dll
+/workstation/tools/dcflush_calls.txt
+
+# User-local runtime configuration
+/bigwilly.conf
+
+# Python, IDE and OS noise
+__pycache__/
+*.pyc
+.vs/
+.idea/
+*.user
+*.suo
+Thumbs.db
+.DS_Store
+
+# Windows shortcuts
+*.lnk

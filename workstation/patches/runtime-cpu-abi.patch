@@ -1,0 +1,22 @@
+diff --git a/include/moderngekko/cpu_state.h b/include/moderngekko/cpu_state.h
+index 24fb92a..672bf66 100644
+--- a/include/moderngekko/cpu_state.h
++++ b/include/moderngekko/cpu_state.h
+@@ -8,7 +8,8 @@
+ extern "C" {
+ #endif
+ 
+-#define MODERNGEKKO_CPU_ABI_VERSION 4u
++// Match the pinned RecompCore/GXRuntime backend's CPU state contract.
++#define MODERNGEKKO_CPU_ABI_VERSION 3u
+ #define GXRUNTIME_CPU_ABI_VERSION MODERNGEKKO_CPU_ABI_VERSION
+ 
+ typedef struct CPUState CPUState;
+@@ -72,7 +73,6 @@ struct CPUState
+     uint32_t ram_size;
+     PPCExternalPointer external_pointer;
+     int64_t downcount;
+-    int64_t cycle_budget;
+     uint8_t* exram;
+     uint32_t exram_size;
+     PPCSPRRead spr_read;

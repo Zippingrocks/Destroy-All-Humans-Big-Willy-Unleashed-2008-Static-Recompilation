@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/Zippingrocks/Destroy-All-Humans-Big-Willy-Unleashed-2008-Static-Recompilation/security
+    about: Read SECURITY.md before reporting a vulnerability.

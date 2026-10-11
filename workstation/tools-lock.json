@@ -1,0 +1,14 @@
+[
+  {
+    "name": "DolRecomp",
+    "commit": "40637c4683bd2820ac5b23607ee344720beb26df"
+  },
+  {
+    "name": "decomp-toolkit",
+    "commit": "e4219e7644fb7b96d920d5bc3d1d950f5569dcaf"
+  },
+  {
+    "name": "ModernGekko-Template",
+    "commit": "eedda2b02dde3aefc02796d859f0033b916aad03"
+  }
+]
