@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Furon Dev Console — Big Willy Unleashed</title>
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#0d1117;--bg2:#161b22;--bg3:#1f2937;
+  --border:#30363d;--text:#e6edf3;--muted:#8b949e;
+  --green:#3fb950;--yellow:#d29922;--red:#f85149;
+  --blue:#58a6ff;--orange:#f0883e;
+  font:13px/1.4 'Consolas','Cascadia Code','Fira Code',monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);display:flex;flex-direction:column;height:100vh;overflow:hidden}
+
+/* ── header ─────────────────────────────────────────────────────── */
+#hdr{
+  flex:0 0 auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--border);
+  min-height:38px;
+}
+#hdr-title{font-size:13px;color:var(--muted);white-space:nowrap}
+#hdr-title b{color:var(--text)}
+.pill{display:inline-flex;align-items:center;padding:2px 8px;border-radius:99px;
+      font-size:11px;background:var(--bg3);color:var(--muted)}
+.pill.running{background:#1a3b25;color:var(--green)}
+.pill.paused{background:#3b2a1a;color:var(--orange)}
+.pill.err{background:#3b1a1a;color:var(--red)}
+#hdr-fps{font-size:20px;font-weight:700;min-width:80px;text-align:right;transition:color .3s}
+#hdr-target{font-size:11px;color:var(--muted);white-space:nowrap}
+#hdr-elapsed{font-size:11px;color:var(--muted)}
+.flex-gap{flex:1}
+#hdr-age{font-size:10px;color:var(--border)}
+
+/* ── crash banner ────────────────────────────────────────────────── */
+#crash-banner{
+  flex:0 0 auto;display:none;padding:8px 12px;
+  background:#3b1a1a;border-bottom:2px solid var(--red);
+  color:var(--red);font-weight:700;font-size:12px
+}
+
+/* ── main 3-col grid ─────────────────────────────────────────────── */
+#main{
+  flex:1 1 auto;overflow:hidden;
+  display:grid;grid-template-columns:400px 1fr 300px
+}
+.panel{
+  border-right:1px solid var(--border);
+  display:flex;flex-direction:column;overflow:hidden;min-width:0
+}
+.panel:last-child{border-right:none}
+.ptitle{
+  flex:0 0 auto;padding:5px 10px;background:var(--bg2);
+  border-bottom:1px solid var(--border);
+  font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)
+}
+.pinner{flex:1 1 auto;overflow-y:auto;padding:8px}
+
+/* ── screenshot ──────────────────────────────────────────────────── */
+#screen-wrap{
+  background:#000;border:1px solid var(--border);border-radius:3px;
+  margin-bottom:8px;overflow:hidden;min-height:120px;max-height:260px;
+  display:flex;align-items:center;justify-content:center
+}
+#screen{width:100%;display:none;max-height:260px;object-fit:contain}
+#screen-ph{color:var(--muted);font-size:11px}
+
+/* ── log tabs ────────────────────────────────────────────────────── */
+.tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:6px}
+.tab-btn{
+  padding:4px 10px;background:none;border:none;border-bottom:2px solid transparent;
+  color:var(--muted);cursor:pointer;font:inherit;font-size:11px
+}
+.tab-btn.active{color:var(--blue);border-bottom-color:var(--blue)}
+.tab-pane{display:none}
+.tab-pane.active{display:block}
+.logbox{
+  font-size:10.5px;line-height:1.5;white-space:pre-wrap;word-break:break-all;
+  background:var(--bg);border:1px solid var(--border);border-radius:3px;
+  padding:6px;height:170px;overflow-y:auto;color:var(--text)
+}
+
+/* ── fps gauge ───────────────────────────────────────────────────── */
+#fps-big{font-size:60px;font-weight:700;line-height:1;text-align:center;
+         padding:8px 0 2px;transition:color .3s}
+#fps-sub{text-align:center;font-size:11px;color:var(--muted);margin-bottom:6px}
+#fps-bar-outer{height:7px;background:var(--bg3);border-radius:3px;margin:0 8px 6px;overflow:hidden}
+#fps-bar{height:100%;width:0%;border-radius:3px;transition:width .3s,background .3s}
+.trow{display:flex;justify-content:center;gap:14px;font-size:11px;color:var(--muted);margin-bottom:8px}
+.trow button{background:none;border:none;color:inherit;cursor:pointer;font:inherit;
+             font-size:11px;padding:2px 6px;border-radius:3px}
+.trow button.active{color:var(--text);background:var(--bg3)}
+
+/* ── graph ───────────────────────────────────────────────────────── */
+#fps-canvas{width:100%;height:90px;display:block;border:1px solid var(--border);
+            border-radius:3px;background:var(--bg)}
+#graph-legend{font-size:10px;color:var(--muted);text-align:right;margin-top:2px;margin-bottom:4px}
+
+/* ── nav table ───────────────────────────────────────────────────── */
+.kv{width:100%;border-collapse:collapse;font-size:11px}
+.kv td{padding:3px 6px;border-bottom:1px solid var(--bg3)}
+.kv td:first-child{color:var(--muted);width:38%}
+.kv td:last-child{font-weight:600;word-break:break-all}
+
+/* ── section labels ──────────────────────────────────────────────── */
+.sec{
+  font-size:10px;text-transform:uppercase;letter-spacing:.07em;
+  color:var(--muted);margin:10px 0 5px;padding-bottom:3px;
+  border-bottom:1px solid var(--border)
+}
+.sec:first-child{margin-top:0}
+
+/* ── buttons ─────────────────────────────────────────────────────── */
+.btn{background:var(--bg3);color:var(--text);border:1px solid var(--border);
+     padding:5px 9px;border-radius:4px;cursor:pointer;font:inherit;font-size:12px}
+.btn:hover{border-color:var(--blue)}
+.btn.ok{background:#1a3b25;border-color:var(--green);color:var(--green)}
+.btn.warn{background:#3b2a1a;border-color:var(--orange);color:var(--orange)}
+.btn.danger{background:#3b1a1a;border-color:var(--red);color:var(--red)}
+.btn.primary{background:#1a4f7a;border-color:var(--blue);color:var(--blue)}
+.btn-row{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px}
+
+/* ── wii button grid ─────────────────────────────────────────────── */
+.wgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;margin-bottom:6px}
+.wbtn{background:var(--bg3);color:var(--text);border:1px solid var(--border);
+      padding:6px 2px;border-radius:3px;cursor:pointer;font:inherit;
+      font-size:11px;text-align:center}
+.wbtn:hover{border-color:var(--blue)}
+.wbtn:active{background:var(--blue);color:#fff;border-color:var(--blue)}
+
+/* ── sliders ─────────────────────────────────────────────────────── */
+.slrow{display:flex;align-items:center;gap:6px;margin:3px 0;font-size:11px}
+.slrow label{width:60px;color:var(--muted);flex-shrink:0}
+.slrow input[type=range]{flex:1;accent-color:var(--blue)}
+.slval{width:36px;text-align:right;color:var(--text);font-size:11px;flex-shrink:0}
+.holdrow{display:flex;align-items:center;gap:5px;font-size:11px;margin-top:5px;flex-wrap:wrap}
+.holdrow label{color:var(--muted)}
+.holdrow input[type=number]{width:52px;background:var(--bg3);color:var(--text);
+                             border:1px solid var(--border);padding:3px 5px;
+                             border-radius:3px;font:inherit}
+
+/* ── memory ──────────────────────────────────────────────────────── */
+.memrow{display:flex;gap:5px;align-items:center;margin-bottom:5px;flex-wrap:wrap}
+.memrow label{color:var(--muted);font-size:11px;white-space:nowrap}
+.memrow input{background:var(--bg3);color:var(--text);border:1px solid var(--border);
+              padding:4px 6px;border-radius:3px;font:inherit;font-size:11px}
+.addr-in{width:92px}.size-in{width:48px}.data-in{flex:1;min-width:80px}
+.hexdump{font-size:10.5px;background:var(--bg);border:1px solid var(--border);border-radius:3px;
+         padding:5px;min-height:38px;white-space:pre;overflow-x:auto;color:var(--green);
+         margin-bottom:3px}
+.mem-msg{font-size:11px;color:var(--muted);min-height:16px}
+
+/* ── note + checkpoint ───────────────────────────────────────────── */
+#note-ta{width:100%;background:var(--bg3);color:var(--text);border:1px solid var(--border);
+         padding:6px;border-radius:3px;font:inherit;font-size:11px;resize:vertical;min-height:50px}
+#ckpt-sel{background:var(--bg3);color:var(--text);border:1px solid var(--border);
+          padding:4px;border-radius:3px;font:inherit;font-size:11px;
+          width:100%;max-width:190px}
+
+/* ── status bar ──────────────────────────────────────────────────── */
+#sbar{
+  flex:0 0 auto;display:flex;align-items:center;gap:8px;
+  padding:3px 12px;background:var(--bg2);border-top:1px solid var(--border);
+  font-size:10.5px;color:var(--muted);overflow:hidden
+}
+#sbar .sep{color:var(--border)}
+#sbar-err{color:var(--red);flex:1;text-align:right;overflow:hidden;
+           text-overflow:ellipsis;white-space:nowrap}
+</style>
+</head>
+<body>
+
+<!-- ══ HEADER ══════════════════════════════════════════════════════ -->
+<div id="hdr">
+  <span id="hdr-title"><b>Furon Dev Console</b> — Big Willy Unleashed</span>
+  <span id="hdr-state" class="pill">connecting</span>
+  <span id="hdr-fps" style="color:var(--muted)">—</span>
+  <span id="hdr-target">target: —</span>
+  <span id="hdr-elapsed">00:00</span>
+  <span class="flex-gap"></span>
+  <span id="hdr-age"></span>
+</div>
+
+<!-- ══ CRASH BANNER ════════════════════════════════════════════════ -->
+<div id="crash-banner"></div>
+
+<!-- ══ MAIN 3-COLUMN GRID ═══════════════════════════════════════════ -->
+<div id="main">
+
+  <!-- ── LEFT: screenshot + logs ──────────────────────────────────── -->
+  <div class="panel">
+    <div class="ptitle">Game View &amp; Logs</div>
+    <div class="pinner">
+      <div id="screen-wrap">
+        <img id="screen" alt="game screenshot">
+        <span id="screen-ph">No screenshot yet</span>
+      </div>
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="osreport" onclick="switchTab(this)">OSReport</button>
+        <button class="tab-btn" data-tab="furonlog" onclick="switchTab(this)">Furonlog</button>
+        <button class="tab-btn" data-tab="events" onclick="switchTab(this)">Events</button>
+      </div>
+      <div class="tab-pane active" data-tab="osreport">
+        <div id="log-osreport" class="logbox"></div>
+      </div>
+      <div class="tab-pane" data-tab="furonlog">
+        <div id="log-furonlog" class="logbox"></div>
+      </div>
+      <div class="tab-pane" data-tab="events">
+        <div id="log-events" class="logbox"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CENTER: FPS + navigation ─────────────────────────────────── -->
+  <div class="panel">
+    <div class="ptitle">FPS &amp; Navigation</div>
+    <div class="pinner">
+      <div id="fps-big" style="color:var(--muted)">—</div>
+      <div id="fps-sub">FPS</div>
+      <div id="fps-bar-outer"><div id="fps-bar"></div></div>
+      <div class="trow">
+        <button id="tbtn-auto" class="active" onclick="setTarget(null)">⚡ Auto</button>
+        <button id="tbtn-60" onclick="setTarget(60)">60fps (menu)</button>
+        <button id="tbtn-30" onclick="setTarget(30)">30fps (game)</button>
+      </div>
+      <canvas id="fps-canvas"></canvas>
+      <div id="graph-legend">— FPS &nbsp;··· VPS &nbsp;120s window</div>
+
+      <div class="sec">Navigation</div>
+      <table class="kv">
+        <tr><td>State</td><td id="n-state">—</td></tr>
+        <tr><td>Nav Mode</td><td id="n-mode">—</td></tr>
+        <tr><td>Room ID</td><td id="n-room">—</td></tr>
+        <tr><td>Position X,Z</td><td id="n-pos">—</td></tr>
+        <tr><td>Facing</td><td id="n-facing">—</td></tr>
+        <tr><td>NPC Count</td><td id="n-npcs">—</td></tr>
+        <tr><td>Archive</td><td id="n-archive">—</td></tr>
+        <tr><td>Location</td><td id="n-location">—</td></tr>
+        <tr><td>Frame Count</td><td id="n-frame">—</td></tr>
+        <tr><td>Speed</td><td id="n-speed">—</td></tr>
+        <tr><td>Last Error</td><td id="n-err" style="color:var(--orange)">—</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── RIGHT: controls + memory ─────────────────────────────────── -->
+  <div class="panel">
+    <div class="ptitle">Controls &amp; Memory</div>
+    <div class="pinner">
+
+      <div class="sec">Quick Actions</div>
+      <div class="btn-row">
+        <button class="btn ok"      onclick="act({action:'screenshot'})">📷 Shot</button>
+        <button class="btn ok"      onclick="act({action:'save'})">💾 Save</button>
+        <button class="btn" id="pause-btn" onclick="togglePause()">⏸ Pause</button>
+        <button class="btn"         onclick="act({action:'neutral'})">⛔ Neutral</button>
+        <button class="btn danger"  onclick="actStop()">■ Stop</button>
+      </div>
+
+      <div class="sec">Load Checkpoint</div>
+      <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
+        <select id="ckpt-sel"><option value="">— loading —</option></select>
+        <button class="btn primary" onclick="loadCkpt()">Load</button>
+        <button class="btn"         onclick="refreshCkpts()" title="Reload list">↺</button>
+      </div>
+
+      <div class="sec">Wii / Nunchuk Input</div>
+      <div class="wgrid">
+        <!-- Row 1: dpad-up, +, -, home -->
+        <button class="wbtn" onclick="pressBtn('wii_dpad_up')">▲</button>
+        <button class="wbtn" onclick="pressBtn('wii_plus')">＋</button>
+        <button class="wbtn" onclick="pressBtn('wii_minus')">－</button>
+        <button class="wbtn" onclick="pressBtn('wii_home')">⌂</button>
+        <!-- Row 2: dpad l/r, A, B -->
+        <button class="wbtn" onclick="pressBtn('wii_dpad_left')">◀</button>
+        <button class="wbtn" onclick="pressBtn('wii_dpad_right')">▶</button>
+        <button class="wbtn" onclick="pressBtn('wii_a')">A</button>
+        <button class="wbtn" onclick="pressBtn('wii_b')">B</button>
+        <!-- Row 3: dpad-down, 1, 2, blank -->
+        <button class="wbtn" onclick="pressBtn('wii_dpad_down')">▼</button>
+        <button class="wbtn" onclick="pressBtn('wii_1')">1</button>
+        <button class="wbtn" onclick="pressBtn('wii_2')">2</button>
+        <div></div>
+        <!-- Row 4: nunchuk C, Z -->
+        <button class="wbtn" onclick="pressBtn('nunchuk_c')">C</button>
+        <button class="wbtn" onclick="pressBtn('nunchuk_z')">Z</button>
+        <div></div><div></div>
+      </div>
+
+      <div class="slrow">
+        <label>Nunchuk Y</label>
+        <input type="range" id="sl-ny"  min="-1" max="1" step=".05" value="0" oninput="slv('ny',this.value)">
+        <span class="slval" id="sv-ny">0.00</span>
+      </div>
+      <div class="slrow">
+        <label>Nunchuk X</label>
+        <input type="range" id="sl-nx"  min="-1" max="1" step=".05" value="0" oninput="slv('nx',this.value)">
+        <span class="slval" id="sv-nx">0.00</span>
+      </div>
+      <div class="slrow">
+        <label>IR X</label>
+        <input type="range" id="sl-irx" min="-1" max="1" step=".05" value="0" oninput="slv('irx',this.value)">
+        <span class="slval" id="sv-irx">0.00</span>
+      </div>
+      <div class="slrow">
+        <label>IR Y</label>
+        <input type="range" id="sl-iry" min="-1" max="1" step=".05" value="0" oninput="slv('iry',this.value)">
+        <span class="slval" id="sv-iry">0.00</span>
+      </div>
+      <div class="holdrow">
+        <label>Hold (s)</label>
+        <input type="number" id="hold" min=".05" max="60" step=".05" value="0.5">
+        <button class="btn primary" onclick="pressAxes()">Send Axes</button>
+        <button class="btn"         onclick="resetSliders()">Reset</button>
+      </div>
+
+      <div class="sec">Memory Peek</div>
+      <div class="memrow">
+        <label>Address</label>
+        <input type="text" id="m-addr" class="addr-in" value="0x8035EC64">
+        <label>Size</label>
+        <input type="text" id="m-size" class="size-in" value="16">
+        <button class="btn primary" onclick="doPeek()">Peek</button>
+      </div>
+      <div id="hexdump" class="hexdump">—</div>
+      <div id="m-msg" class="mem-msg"></div>
+
+      <div class="sec">Memory Write</div>
+      <div class="memrow">
+        <label>Address</label>
+        <input type="text" id="m-waddr" class="addr-in" placeholder="0x80000000">
+        <label>Hex</label>
+        <input type="text" id="m-wdata" class="data-in" placeholder="DEADBEEF">
+        <button class="btn danger" onclick="doWrite()">Write</button>
+      </div>
+      <div id="m-wmsg" class="mem-msg"></div>
+
+      <div class="sec">Session Note</div>
+      <textarea id="note-ta" placeholder="Notes about the current run…"></textarea>
+      <div style="margin-top:4px">
+        <button class="btn" onclick="saveNote()">Save Note</button>
+      </div>
+
+    </div>
+  </div>
+
+</div><!-- #main -->
+
+<!-- ══ STATUS BAR ══════════════════════════════════════════════════ -->
+<div id="sbar">
+  <span id="sb-pending">pending: 0</span>
+  <span class="sep">|</span>
+  <span id="sb-ctrl">ctrl: none</span>
+  <span class="sep">|</span>
+  <span id="sb-sess">—</span>
+  <span id="sbar-err"></span>
+</div>
+
+<script>
+'use strict';
+const TOKEN = '__DEV_TOKEN__';
+
+// ── globals ──────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+let manualTarget = null;   // null=auto, 30, or 60
+let gamePaused   = false;
+let activeTab    = 'osreport';
+let noteLoaded   = false;
+let pendingPeekName = null;
+let pendingPeekTimer = null;
+let fpsHistory   = [];
+const startWall  = Date.now();
+
+// ── API ──────────────────────────────────────────────────────────
+async function post(body) {
+  const r = await fetch('/api/action', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+
+async function act(body) {
+  try {
+    const res = await post(body);
+    if (res.error) { showErr(res.error); return res; }
+    $('sbar-err').textContent = '';
+    if (body.action === 'peek' && res.path) {
+      pendingPeekName = res.path.replace(/\\/g, '/').split('/').pop();
+      $('m-msg').textContent = 'Waiting for peek result…';
+      schedPeek();
+    }
+    return res;
+  } catch (e) { showErr(String(e)); }
+}
+
+function showErr(msg) { $('sbar-err').textContent = '⚠ ' + msg; }
+
+// ── FPS target ───────────────────────────────────────────────────
+function getTarget(r) {
+  if (manualTarget !== null) return manualTarget;
+  if (!r || r.navigation_valid !== 'true' ||
+      r.navigation_mode === '0' || r.navigation_mode === 0) return 60;
+  return 30;
+}
+
+function setTarget(t) {
+  manualTarget = t;
+  $('tbtn-auto').className = t === null ? 'active' : '';
+  $('tbtn-60').className   = t === 60   ? 'active' : '';
+  $('tbtn-30').className   = t === 30   ? 'active' : '';
+}
+
+function fpsColor(fps, target) {
+  const d = fps - target;
+  if (d >= -2)  return '#3fb950'; // green  — at or above target
+  if (d >= -6)  return '#d29922'; // yellow — slightly below
+  if (d >= -15) return '#f0883e'; // orange — notably below
+  return '#f85149';               // red    — far below
+}
+
+// ── tabs ─────────────────────────────────────────────────────────
+function switchTab(btn) {
+  activeTab = btn.dataset.tab;
+  document.querySelectorAll('.tab-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.tab === activeTab));
+  document.querySelectorAll('.tab-pane').forEach(p =>
+    p.classList.toggle('active', p.dataset.tab === activeTab));
+}
+
+// ── log rendering ────────────────────────────────────────────────
+function renderLog(id, lines) {
+  const el = $(id);
+  if (!el) return;
+  const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 10;
+  el.textContent = Array.isArray(lines) ? lines.join('\n') : String(lines);
+  if (atBottom) el.scrollTop = el.scrollHeight;
+}
+
+// ── FPS canvas graph ─────────────────────────────────────────────
+function drawGraph() {
+  const canvas = $('fps-canvas');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  if (!W || !H) return;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const MAXFPS = 70, WIN = 120;
+
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, W, H);
+
+  // reference lines at 30 and 60
+  ctx.setLineDash([3, 4]);
+  ctx.lineWidth = 1;
+  for (const [fps, bg, fg, lbl] of [
+    [60, '#1d4878', '#4da6ff', '60'],
+    [30, '#1a3b25', '#3fb950', '30'],
+  ]) {
+    const y = H - (fps / MAXFPS) * H;
+    ctx.strokeStyle = bg;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    ctx.fillStyle = fg;
+    ctx.font = '9px Consolas,monospace';
+    ctx.fillText(lbl, 2, y - 2);
+  }
+  ctx.setLineDash([]);
+
+  if (fpsHistory.length < 2) return;
+  const now = fpsHistory[fpsHistory.length - 1].t;
+
+  function drawLine(key, color, dashed) {
+    ctx.beginPath();
+    if (dashed) ctx.setLineDash([2, 3]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = color;
+    let first = true;
+    for (const s of fpsHistory) {
+      const age = now - s.t;
+      if (age > WIN) continue;
+      const x = W * (1 - age / WIN);
+      const y = H - Math.min(s[key] / MAXFPS, 1) * H;
+      first ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      first = false;
+    }
+    ctx.stroke();
+    if (dashed) ctx.setLineDash([]);
+  }
+
+  drawLine('fps', '#58a6ff', false);
+  drawLine('vps', '#8b949e', true);
+}
+
+new ResizeObserver(() => drawGraph())
+  .observe($('fps-canvas').parentElement || document.body);
+
+// ── status poll (500 ms) ─────────────────────────────────────────
+async function pollStatus() {
+  try {
+    const s = await fetch('/api/status', { cache: 'no-store' }).then(r => r.json());
+    const r = s.runtime || {};
+
+    // crash banner
+    const crashed = s.exit_code != null && s.exit_code !== 0;
+    const cb = $('crash-banner');
+    if (crashed) {
+      cb.style.display = 'block';
+      cb.textContent = `⚠ Game exited with code ${s.exit_code} — check Furonlog for details`;
+    } else {
+      cb.style.display = 'none';
+    }
+
+    // state pill
+    const state = r.state || 'unknown';
+    const pill = $('hdr-state');
+    pill.textContent = state;
+    pill.className = 'pill' + (crashed ? ' err' : state === 'running' ? ' running'
+                               : state === 'paused' ? ' paused' : '');
+
+    // FPS display
+    const fps = parseFloat(r.fps)  || 0;
+    const vps = parseFloat(r.vps)  || 0;
+    const tgt = getTarget(r);
+    const col = fps > 0 ? fpsColor(fps, tgt) : 'var(--muted)';
+
+    $('fps-big').textContent = fps > 0 ? fps.toFixed(1) : '—';
+    $('fps-big').style.color = col;
+    $('fps-sub').textContent =
+      `FPS  |  VPS ${vps.toFixed(1)}  |  ${r.frame_count || 0} frames`;
+    $('fps-bar').style.width      = fps > 0 ? Math.min(fps / (tgt * 1.05), 1) * 100 + '%' : '0%';
+    $('fps-bar').style.background = col;
+    $('hdr-fps').textContent = fps > 0 ? fps.toFixed(1) + ' FPS' : '—';
+    $('hdr-fps').style.color = col;
+    $('hdr-target').textContent = `target: ${tgt}fps`;
+
+    // pause button
+    gamePaused = state === 'paused';
+    $('pause-btn').textContent = gamePaused ? '▶ Resume' : '⏸ Pause';
+    $('pause-btn').className   = gamePaused ? 'btn ok'   : 'btn warn';
+
+    // screenshot
+    if (s.image_time) {
+      const url = '/live.png?' + encodeURIComponent(s.image_time);
+      const img = $('screen');
+      if (!img.src.endsWith(encodeURIComponent(s.image_time))) {
+        img.onload = () => {
+          img.style.display = 'block';
+          $('screen-ph').style.display = 'none';
+        };
+        img.src = url;
+      }
+    }
+
+    $('hdr-age').textContent = s.status_age != null
+      ? `age: ${s.status_age.toFixed(1)}s` : '';
+
+    // nav table
+    const nav = k => r[k] !== undefined ? r[k] : '—';
+    $('n-state').textContent    = state;
+    $('n-mode').textContent     = nav('navigation_mode');
+    $('n-room').textContent     = nav('navigation_room_id');
+    $('n-pos').textContent      = r.navigation_player_x !== undefined
+      ? `${(+r.navigation_player_x).toFixed(1)}, ${(+r.navigation_player_z).toFixed(1)}`
+      : '—';
+    $('n-facing').textContent   = r.navigation_facing  !== undefined
+      ? (+r.navigation_facing).toFixed(2) : '—';
+    $('n-npcs').textContent     = nav('navigation_npc_count');
+    $('n-archive').textContent  = nav('navigation_archive');
+    $('n-location').textContent = nav('navigation_location');
+    $('n-frame').textContent    = nav('frame_count');
+    $('n-speed').textContent    = nav('speed');
+    $('n-err').textContent      = r.last_error || '—';
+
+    // status bar
+    $('sb-pending').textContent = `pending: ${s.pending ? s.pending.length : 0}`;
+    const ctrl = s.controls && Object.keys(s.controls).length
+      ? JSON.stringify(s.controls) : 'none';
+    $('sb-ctrl').textContent = 'ctrl: ' + (ctrl.length > 38 ? ctrl.slice(0, 38) + '…' : ctrl);
+    $('sb-sess').textContent = s.session
+      ? '…/' + s.session.replace(/\\/g, '/').split('/').slice(-2).join('/') : '—';
+
+    // events log (update buffer even when tab is hidden)
+    renderLog('log-events',
+      (s.events || []).map(e => `${e.at} [${e.kind}] ${e.text}`));
+
+    // load note from server once on first connect
+    if (!noteLoaded && s.note !== undefined) {
+      $('note-ta').value = s.note || '';
+      noteLoaded = true;
+    }
+
+    // trigger peek fetch if a read_memory is no longer pending
+    if (pendingPeekName && s.pending) {
+      const stillPending = s.pending.some(n => n.includes('read_memory'));
+      if (!stillPending) { clearTimeout(pendingPeekTimer); fetchPeek(); }
+    }
+
+    $('sbar-err').textContent = '';
+  } catch (e) {
+    $('hdr-state').textContent = 'disconnected';
+    $('hdr-state').className = 'pill err';
+    showErr(String(e));
+  }
+}
+
+// ── FPS history poll (1 s) ───────────────────────────────────────
+async function pollFps() {
+  try {
+    fpsHistory = await fetch('/api/fps_history', { cache: 'no-store' }).then(r => r.json());
+    drawGraph();
+  } catch (e) {}
+}
+
+// ── log poll (2 s) ───────────────────────────────────────────────
+async function pollLogs() {
+  try {
+    const [out, furon] = await Promise.all([
+      fetch('/api/stdout?lines=300',  { cache: 'no-store' }).then(r => r.json()),
+      fetch('/api/furonlog?lines=300', { cache: 'no-store' }).then(r => r.json()),
+    ]);
+    renderLog('log-osreport', out);
+    renderLog('log-furonlog', furon);
+  } catch (e) {}
+}
+
+// ── checkpoints ──────────────────────────────────────────────────
+async function refreshCkpts() {
+  try {
+    const list = await fetch('/api/checkpoints', { cache: 'no-store' }).then(r => r.json());
+    const sel = $('ckpt-sel');
+    sel.innerHTML = list.length
+      ? list.map(c =>
+          `<option value="${c.path.replace(/"/g, '&quot;')}">${c.name}</option>`
+        ).join('')
+      : '<option value="">— no checkpoints found —</option>';
+  } catch (e) {
+    $('ckpt-sel').innerHTML = '<option value="">— error loading —</option>';
+  }
+}
+
+function loadCkpt() {
+  const v = $('ckpt-sel').value;
+  if (!v) return;
+  act({ action: 'load', path: v });
+}
+
+// ── Wii / Nunchuk controls ───────────────────────────────────────
+function pressBtn(btn) {
+  const secs = parseFloat($('hold').value) || 0.5;
+  act({ action: 'pad', seconds: secs, controls: { [btn]: 1 } });
+}
+
+function pressAxes() {
+  const secs = parseFloat($('hold').value) || 0.5;
+  const ny  = parseFloat($('sl-ny').value);
+  const nx  = parseFloat($('sl-nx').value);
+  const irx = parseFloat($('sl-irx').value);
+  const iry = parseFloat($('sl-iry').value);
+  const c = {};
+  if (Math.abs(ny)  > 0.001) c.nunchuk_y = ny;
+  if (Math.abs(nx)  > 0.001) c.nunchuk_x = nx;
+  if (Math.abs(irx) > 0.001) c.wii_ir_x  = irx;
+  if (Math.abs(iry) > 0.001) c.wii_ir_y  = iry;
+  if (!Object.keys(c).length) { showErr('Move at least one axis before sending'); return; }
+  act({ action: 'pad', seconds: secs, controls: c });
+}
+
+function slv(id, val) {
+  $('sv-' + id).textContent = parseFloat(val).toFixed(2);
+}
+
+function resetSliders() {
+  for (const id of ['ny', 'nx', 'irx', 'iry']) {
+    $('sl-' + id).value = '0';
+    $('sv-' + id).textContent = '0.00';
+  }
+}
+
+function togglePause() { act({ action: gamePaused ? 'resume' : 'pause' }); }
+
+function actStop() {
+  if (!confirm('Send stop command to the game process?')) return;
+  act({ action: 'stop' });
+}
+
+// ── memory peek ───────────────────────────────────────────────────
+async function doPeek() {
+  const addr = $('m-addr').value.trim();
+  const size = parseInt($('m-size').value) || 16;
+  if (!addr) { showErr('Enter a memory address'); return; }
+  $('m-msg').textContent = 'Queuing peek…';
+  $('hexdump').textContent = '—';
+  pendingPeekName = null;
+  clearTimeout(pendingPeekTimer);
+  await act({ action: 'peek', address: addr, size });
+}
+
+function schedPeek() {
+  pendingPeekTimer = setTimeout(fetchPeek, 700);
+}
+
+async function fetchPeek() {
+  if (!pendingPeekName) return;
+  try {
+    const r = await fetch(
+      '/api/artifact?name=' + encodeURIComponent(pendingPeekName),
+      { cache: 'no-store' }
+    );
+    if (r.status === 404) { schedPeek(); return; }
+    if (!r.ok) {
+      $('m-msg').textContent = 'Error: HTTP ' + r.status;
+      pendingPeekName = null;
+      return;
+    }
+    const buf   = await r.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    const base  = parseInt($('m-addr').value, 16) || 0;
+    let out = '';
+    for (let i = 0; i < bytes.length; i += 16) {
+      const addr = '0x' + (base + i).toString(16).toUpperCase().padStart(8, '0');
+      const hex  = Array.from(bytes.slice(i, i + 16))
+        .map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+      const asc  = Array.from(bytes.slice(i, i + 16))
+        .map(b => (b >= 32 && b < 127) ? String.fromCharCode(b) : '.').join('');
+      out += `${addr}  ${hex.padEnd(47)}  ${asc}\n`;
+    }
+    $('hexdump').textContent = out || '(empty)';
+    $('m-msg').textContent   = `${bytes.length} bytes from ${$('m-addr').value}`;
+    pendingPeekName = null;
+  } catch (e) {
+    $('m-msg').textContent = 'Peek error: ' + e;
+    pendingPeekName = null;
+  }
+}
+
+// ── memory write ──────────────────────────────────────────────────
+async function doWrite() {
+  const addr = $('m-waddr').value.trim();
+  const data = $('m-wdata').value.trim().replace(/\s+/g, '');
+  if (!addr || !data) { showErr('Enter address and hex data'); return; }
+  const wmsg = $('m-wmsg');
+  wmsg.style.color = 'var(--muted)';
+  wmsg.textContent = 'Writing…';
+  try {
+    const res = await post({ action: 'write_memory', address: addr, data });
+    if (res.ok) {
+      wmsg.textContent = `Wrote ${data.length / 2} bytes to ${addr}`;
+      wmsg.style.color = 'var(--green)';
+    } else {
+      wmsg.textContent = '⚠ ' + (res.error || 'failed');
+      wmsg.style.color = 'var(--red)';
+    }
+  } catch (e) {
+    wmsg.textContent = '⚠ ' + e;
+    wmsg.style.color = 'var(--red)';
+  }
+}
+
+// ── session note ──────────────────────────────────────────────────
+function saveNote() {
+  act({ action: 'note', text: $('note-ta').value });
+}
+
+// ── elapsed timer ─────────────────────────────────────────────────
+function updateElapsed() {
+  const s = Math.floor((Date.now() - startWall) / 1000);
+  $('hdr-elapsed').textContent =
+    String(Math.floor(s / 60)).padStart(2, '0') + ':' +
+    String(s % 60).padStart(2, '0');
+}
+
+// ── start ─────────────────────────────────────────────────────────
+refreshCkpts();
+pollStatus();
+pollFps();
+pollLogs();
+setInterval(pollStatus,   500);
+setInterval(pollFps,     1000);
+setInterval(pollLogs,    2000);
+setInterval(updateElapsed, 1000);
+updateElapsed();
+</script>
+</body>
+</html>
