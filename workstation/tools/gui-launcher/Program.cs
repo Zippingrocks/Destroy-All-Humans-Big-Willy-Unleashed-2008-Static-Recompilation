@@ -21,6 +21,45 @@ internal static class Program
     static readonly object FuronLock = new();
     static string startupStatus = "Preparing for invasion…";
 
+    static void EnsureRetailGraphicsProfile(string userDir)
+    {
+        var configDir = Path.Combine(userDir, "Config");
+        Directory.CreateDirectory(configDir);
+        var gfxPath = Path.Combine(configDir, "GFX.ini");
+        var gfx = File.Exists(gfxPath) ? File.ReadAllText(gfxPath) : "";
+        if (gfx.Length == 0 || gfx.Contains("InternalResolution = 6") ||
+            gfx.Contains("MSAA = 8") || gfx.Contains("SSAA = True") ||
+            gfx.Contains("MaxAnisotropy = 4") || gfx.Contains("ForceTextureFiltering = 2"))
+        {
+            File.WriteAllText(gfxPath,
+                "[Settings]\r\n" +
+                "DumpTextures = False\r\n" +
+                "InternalResolution = 1\r\n" +
+                "ShaderCache = True\r\n" +
+                "ShaderCompilationMode = 2\r\n" +
+                "WaitForShadersBeforeStarting = False\r\n");
+        }
+
+        var frontendPath = Path.Combine(userDir, "config.ini");
+        var frontend = File.Exists(frontendPath) ? File.ReadAllText(frontendPath) : "";
+        if (frontend.Length == 0 || frontend.Contains("resolution=3840x2160"))
+        {
+            File.WriteAllText(frontendPath,
+                "# ModernGekko frontend settings\r\n" +
+                "[Video]\r\n" +
+                "resolution=640x528\r\n" +
+                "backend=Vulkan\r\n" +
+                "fullscreen=false\r\n" +
+                "show_fps_in_title=false\r\n" +
+                "[Input]\r\n" +
+                "[Netplay]\r\n" +
+                "nickname=Player\r\n" +
+                "address=127.0.0.1\r\n" +
+                "port=2626\r\n" +
+                "buffer=auto\r\n");
+        }
+    }
+
     static void FuronWrite(string tag, string? line)
     {
         if (line is null) return;
@@ -158,6 +197,7 @@ internal static class Program
         Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
         Directory.CreateDirectory(userDir);
         Directory.CreateDirectory(autoDir);
+        EnsureRetailGraphicsProfile(userDir);
         var controllerConfig = Path.Combine(userDir, "Config", "WiimoteNew.ini");
         if (!File.Exists(controllerConfig) || new FileInfo(controllerConfig).Length == 0)
         {
@@ -240,20 +280,8 @@ internal static class Program
         psi.EnvironmentVariables["STATICRECOMP_FORCE_NUNCHUK"]  = "1";
         // Omit per-dispatch diagnostic counters during normal play.
         psi.EnvironmentVariables["STATICRECOMP_FAST_STATS"]     = "1";
-        psi.EnvironmentVariables["BIGWILLY_PC_CONTROLS"]        = "1";
-        // Cache disc assets in host RAM and extend the active map's visibility.
-        // Either feature can be disabled independently in bigwilly.conf.
-        psi.EnvironmentVariables["BIGWILLY_PRELOAD_ASSETS"] = LoadConfig("preload_assets") == "0" ? "0" : "1";
-        psi.EnvironmentVariables["BIGWILLY_FULL_WORLD"] = LoadConfig("full_world") == "0" ? "0" : "1";
-        psi.EnvironmentVariables["BIGWILLY_MAX_DETAIL"] = LoadConfig("max_detail") == "1" ? "1" : "0";
-        // Validated on the local 7950X3D: retain the native code in its shared L3.
-        psi.EnvironmentVariables["MODERNGEKKO_CACHE_AFFINITY"]   = "1";
         // --no-mods permits omitting empty native interception callbacks.
         psi.EnvironmentVariables["STATICRECOMP_SKIP_EMPTY_MOD_CALLS"] = "1";
-        // Keep code invalidation, omit data-only invalidation when caches are disabled.
-        psi.EnvironmentVariables["BIGWILLY_SKIP_NONCODE_CACHE"]  = "1";
-        psi.EnvironmentVariables["BIGWILLY_MOUSE_IR_X_OFFSET"]   = "0.0";
-        psi.EnvironmentVariables["BIGWILLY_MOUSE_IR_Y_OFFSET"]   = "0.0";
 
         var proc = new Process { StartInfo = psi };
         proc.OutputDataReceived += (_, e) => FuronWrite("OUT", e.Data);

@@ -6,8 +6,6 @@ p = argparse.ArgumentParser()
 p.add_argument('--fast-module', action='store_true')
 p.add_argument('--skip-cache', action='store_true')
 p.add_argument('--native-resolution', action='store_true')
-p.add_argument('--full-world', action='store_true')
-p.add_argument('--max-detail', action='store_true')
 p.add_argument('--callback-audit', action='store_true')
 p.add_argument('--user-profile', type=Path)
 p.add_argument('--profile', action='store_true')
@@ -44,10 +42,6 @@ env.update(STATICRECOMP_FORCE_NUNCHUK='1', STATICRECOMP_FAST_STATS='1',
            STATICRECOMP_AUTOMATION_HARD_OVERRIDE='1')
 if a.skip_cache:
     env['BIGWILLY_SKIP_NONCODE_CACHE'] = '1'
-if a.full_world:
-    env.update(BIGWILLY_FULL_WORLD='1', BIGWILLY_PRELOAD_ASSETS='1')
-if a.max_detail:
-    env['BIGWILLY_MAX_DETAIL'] = '1'
 if a.callback_audit:
     env['STATICRECOMP_CALLBACK_AUDIT'] = str(log / 'callback-edges.csv')
 if a.fast_os_interrupts:
@@ -92,9 +86,11 @@ with (log / 'stdout.txt').open('w') as so, (log / 'stderr.txt').open('w') as se:
         running_seconds=time.monotonic()-launched
         command('001-neutral', 'command=pad\nport=0\nwii_ir_x=0\nwii_ir_y=0\n')
         deadline = time.monotonic()+120
-        while int(status().get('present_count',0))<30 and proc.poll() is None and time.monotonic()<deadline:
+        render_status = status()
+        while int(render_status.get('present_count',0))<30 and proc.poll() is None and time.monotonic()<deadline:
             time.sleep(.5)
-        if int(status().get('present_count',0))<30:
+            render_status = status()
+        if int(render_status.get('present_count',0))<30:
             raise RuntimeError('Checkpoint did not resume rendering within 120 seconds')
         (log/'startup.json').write_text(json.dumps({'running_seconds':running_seconds,
             'checkpoint_rendering_seconds':time.monotonic()-launched},indent=2))

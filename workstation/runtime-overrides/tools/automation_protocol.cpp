@@ -165,8 +165,6 @@ std::optional<CommandType> ParseCommandType(std::string_view value)
     return CommandType::GiveAllWeapons;
   if (text == "load_level")
     return CommandType::LoadLevel;
-  if (text == "interact")
-    return CommandType::Interact;
   if (text == "skip_movie")
     return CommandType::SkipMovie;
   if (text == "pause")
@@ -540,7 +538,6 @@ bool ParseCommandFile(const std::filesystem::path& path, Command* command, std::
   case CommandType::Pause:
   case CommandType::EnterBigWilly:
   case CommandType::GiveAllWeapons:
-  case CommandType::Interact:
   case CommandType::SkipMovie:
   case CommandType::Resume:
   case CommandType::Stop:

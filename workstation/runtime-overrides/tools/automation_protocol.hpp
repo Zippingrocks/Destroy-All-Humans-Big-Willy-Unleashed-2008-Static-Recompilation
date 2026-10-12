@@ -19,7 +19,6 @@ enum class CommandType
   EnterBigWilly,
   GiveAllWeapons,
   LoadLevel,
-  Interact,
   SkipMovie,
   Pause,
   Resume,

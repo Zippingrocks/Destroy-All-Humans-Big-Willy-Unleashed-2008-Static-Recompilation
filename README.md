@@ -27,12 +27,12 @@ The repository does **not** contain the game or its assets. You must supply file
 | Windows x86-64 | Native development build |
 | Boot and front end | Boots through the original movies to the title screen and main menu |
 | Gameplay | Crypto, Big Willy and saucer checkpoints have run without a crash in bounded tests |
-| Input | Keyboard/mouse development profile; controller behavior remains active work |
-| Movies | Original movies play; `Escape` requests the game's normal skip path |
-| Graphics | Direct3D output works; maximum-detail and full-world modes are experimental |
+| Input | Host input is translated to the original Wii Remote/Nunchuk interface; retail behavior is the target |
+| Movies | Original movies play through the game's original timing and state transitions |
+| Graphics | Direct3D output works with the game's original draw distance and LOD decisions |
 | Commands | `giveallweapons`, `enter_bigwilly`, `list_levels` and `load level_NAME` development commands exist |
 | Callbacks | All 20,907 named functions and 24,124 static code-pointer candidates have generated entry coverage |
-| Timing | Retail 30 FPS is the gameplay target; maximum-detail gameplay is not locked to 30 FPS |
+| Timing | Original approximately 30 FPS timing remains the target; the 60 FPS menu patch is removed |
 
 The callback audit exercised all 29,260 indirect branch taken paths against the original module and the candidate module. A live test observed 3,730 distinct indirect edges to 2,431 symbol-mapped targets with no unknown target. That is strong evidence for the audited paths, not proof that every campaign path is complete.
 
@@ -40,12 +40,12 @@ The callback audit exercised all 29,260 indirect branch taken paths against the 
 
 - Native x86-64 runner and game module produced from statically translated Wii code.
 - Original menu, movies and game-world rendering.
-- Keyboard and mouse development controls with a centered Wii pointer path.
+- Host input translation into the original Wii Remote and Nunchuk controls.
 - Scriptable runtime control for unattended boot, input, screenshots, memory reads and checkpoints.
 - Crash logging, callback tracing, frame timing and repeatable gameplay probes.
 - Safe injected guest-call contexts that preserve Wii CPU state and stack linkage.
 - Host floating-point control synchronized with the emulated Wii FPSCR.
-- Optional full-world draw distance and highest-model-detail development modes.
+- A retail-parity baseline that leaves frame timing, camera, LOD, visibility and vehicle behavior to the original game.
 
 ## Requirements
 
@@ -84,26 +84,14 @@ This first public source snapshot preserves the build orchestration, runtime pat
 
 ## Controls and configuration
 
-The current keyboard/mouse development profile uses:
-
-| Action | Input |
-|---|---|
-| Move | `W` `A` `S` `D` |
-| Look / Wii pointer | Mouse |
-| Primary action / Wii A | Left mouse button |
-| Secondary action / Wii B | Right mouse button |
-| Enter or exit vehicle | `E` |
-| Skip movie / back | `Escape` |
-
-Bindings are still being refined for parity with the Wii Remote and Nunchuk. See `workstation/config/KeyboardMouse.ini` for the development profile.
+The host profile maps available PC input into the buttons, stick and IR pointer exposed by an emulated Wii Remote and Nunchuk. It does not patch the game's camera, vehicle interaction or control routines. The current development mapping lives in `workstation/config/KeyboardMouse.ini`; accurate physical-controller mappings remain active work.
 
 ## Known issues
 
 - The complete campaign and all side missions have not received end-to-end validation.
-- Maximum-detail, full-world gameplay is not locked to 30 FPS. One bounded test averaged roughly 15 FPS on the development machine.
 - Audio, effects, visibility transitions, later missions, death/respawn and long sessions need broader testing.
-- Mouse and vehicle controls remain development-oriented and need more retail-behavior comparison.
-- The full-world mode deliberately changes retail draw-distance behavior and can create severe CPU/GPU and memory pressure.
+- Native-profile throughput is not locked to 30 FPS yet; recent 30-second checkpoint runs on the busy development host ranged from 6.8 to 9.8 FPS.
+- Host input translation needs more comparison against a physical Wii Remote and Nunchuk.
 - Public source bootstrapping and dependency restoration need more work before fresh clones are self-contained builds.
 
 ## Reporting bugs
@@ -124,7 +112,7 @@ Pinned upstream revisions and their purpose are recorded in [`Repos/RECOMP_REFER
 .github/                       Repository checks and issue forms
 Repos/                         Upstream revision and provenance notes
 workstation/                   Build, package and status documentation
-  config/                      Keyboard/mouse and graphics templates
+  config/                      Host-to-Wii input mapping template
   patches/                     Reproducible upstream runtime patches
   runtime-overrides/           Exact tested callback/runtime source overrides
   tools/                       Audit, automation and parity tools

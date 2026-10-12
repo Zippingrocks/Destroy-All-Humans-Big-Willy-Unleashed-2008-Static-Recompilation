@@ -342,9 +342,6 @@ std::optional<RuntimeError> ApplyAutomationCommand(Runtime& runtime,
       return RuntimeError{RuntimeErrorCode::InvalidState, "Unknown level or game command already queued"};
     break;
   }
-  case automation::CommandType::Interact:
-    BigWillyControls::RequestInteract();
-    break;
   case automation::CommandType::SkipMovie:
     BigWillyControls::RequestSkipMovie();
     break;
@@ -396,7 +393,6 @@ bool AutomationCommandNeedsReadyCore(automation::CommandType type)
   case automation::CommandType::EnterBigWilly:
   case automation::CommandType::GiveAllWeapons:
   case automation::CommandType::LoadLevel:
-  case automation::CommandType::Interact:
   case automation::CommandType::SkipMovie:
   case automation::CommandType::SaveState:
   case automation::CommandType::LoadState:
